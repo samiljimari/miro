@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://miro.com/app/static/styles.1.0.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+
+    <style>
+      .miro-input--small, .miro-btn, button,  .ng-hide, .miro-btn--pull-right {
+          width: 80px;
+          margin: 3px 0 0 16px ;
+          padding: 3px;
+      }
+
+      .miro-h4, .no-selected-widget {
+          margin: 3px 0 0 14px ;
+      }
+
+      body {
+        margin: 0px;
+        padding: 0px;
+      }
+
+      .h_style {
+        padding: 20;
+        margin: 20px;
+      }
+
+      .miro-btn--medium {
+        height: 36px;
+        width: 75px;
+      }
+
+      hr.greyLine {
+        border-top: 1px solid #C3C2CF;
+        opacity: 1;
+        margin: 20px;
+        padding: 0;
+        margin-bottom: 0px;
+      }
+
+      .edge {
+        margin-left: 20px;
+      }
+
+  </style>
+</head>
+
+<body>
+
+<div class="miro-h3 h_style">Sizes and scale</div>
+<section class="no-selected-widget">
+  <div class="miro-p-medium">
+    Please select one widget to read size
+  </div>
+</section>
+
+<section class="widget-info">
+  <div class="miro-p-medium">
+    <form id="resizeform">
+      <input class="miro-input miro-input--primary miro-input--small" id="input_x" ></input>
+      <input class="miro-input miro-input--primary miro-input--small" id="input_y" ></input>
+      <button type="submit"  class="miro-btn miro-btn--primary miro-btn--medium">Resize</button>
+    </form>
+  </div>
+  <div class="miro-p-medium">
+    <button id="setscale" class="miro-btn miro-btn--secondary miro-btn--small">set X</button>
+    <button class="miro-btn miro-btn--secondary miro-btn--small" disabled>set Y</button>
+    <br>
+    <hr class="greyLine">
+    <div class="miro-p-medium">
+      <p class="edge">Your custom measuring units (Optional)</p>
+    </div>
+    <input class="miro-input miro-input--primary miro-input--small" type="text" id="input_x_unit" placeholder="X units"></input>
+    <input class="miro-input miro-input--primary miro-input--small" type="text" id="input_y_unit" placeholder="Y units"></input>
+    <button id="createdimensionline" class="miro-btn miro-btn--primary miro-btn--medium" style="margin: 3px 0 0 18px " >Dimensions</button>
+  </div>
+</section>
+<script src="https://miro.com/app/static/sdk.1.1.js"></script>
+<script>
+  miro.onReady(async () => {
+    let lastSelectedWidgetId
+    let lastSelectedWidget
+    let selectedWidget
+    let widgetInfo = document.querySelector('.widget-info')
+    let input_x = document.querySelector('#input_x')
+    let input_y = document.querySelector('#input_y')
+    let input_x_unit = document.querySelector('#input_x_unit')
+    let input_y_unit = document.querySelector('#input_y_unit')
+    let placeholder = document.querySelector('.no-selected-widget')
+    let currentDimensionGroup = [] // as new text nodes get created, current dimension group will denote all widgets that should be present in this group
+    let dimensionCreatorState = false
+
+    let resizeButton = document.querySelector('#resizeform')
+    //resizeButton.addEventListener("submit", function(){
+    //});
+    document.querySelector("#resizeform").addEventListener("submit", function(e){
+      btResize()
+    });
+
+    let setScaleButton = document.querySelector('#setscale')
+    setScaleButton.addEventListener('click', async () => {
+      btSetScale()
+    })
+
+    let createDimensionLine = document.querySelector('#createdimensionline')
+    createDimensionLine.addEventListener('click', async () => {
+      CreateDimensionLine()
+    })
+
+    var scale_x = 0
+    var scale_y = 0
+    var objSize_x = ""
+    var objSize_y = ""
+
+    newWidgetCreatedListener()// adds event listener so we record data whenever a widget is added to the board
+
+    async function onSelectionChange() {
+        miro.board.selection.get().then(function(result) {
+          updateSelection(result)
+        });
+    }
+
+    function updateSelection(selectedWidgets) {
+      console.log(selectedWidgets);
+      selectedWidget = selectedWidgets[0]
+      if (selectedWidgets.length === 1) {
+
+        showElement(widgetInfo)
+        hideElement(placeholder)
+        lastSelectedWidgetId = selectedWidget.id
+        lastSelectedWidget = selectedWidget
+        objSize_x = selectedWidget.bounds.width
+        objSize_y = selectedWidget.bounds.height
+
+        getScale()
+
+      } else {
+        showElement(placeholder)
+        hideElement(widgetInfo)
+      }
+    }
+
+  // ----------------------------------
+    async function setScale(widgetId, scale) { // set X code 
+      // Get current scale
+      miro.board.widgets.get({
+        "metadata": {
+          "3074457354030127345": {
+            "scale_on": 1
+          }
+        }
+      }).then( function(result) {
+        setScale_ClearOldWriteNew(result, widgetId, scale)
+
+      })
+    }
+
+    async function setScale_ClearOldWriteNew(widgetResultOld, widgetIdNew, scale) {
+      // Clear curent scale
+      console.log("Clear old set new started")
+      if (widgetResultOld != 0) {
+        console.log("detected a new set x attempt, old widget: ", widgetResultOld)
+        if(confirm("You are trying to Set a new value to X. This will void your current dimension scale on board! \n Do you wish to continue?")) {
+          //reset X to new value
+          console.log("continuing with setting new X...")
+        }
+        else {
+          // keep old X value and escape the sequence
+          console.log("Escape sequence triggered, aborting...")
+          console.log("resetting X to previous value...")
+          getScale()
+          return
+        }
+
+        console.log("now resetting the old metadata...")
+          miro.board.widgets.update({
+            "id": widgetResultOld[0].id,
+            "metadata": {
+              "3074457354030127345": {
+                "scale": "",
+                "scale_on": ""
+              }
+            }
+          })
+
+        console.log("new widget to replace old scale: ", widgetIdNew)
+        console.log("the new scale: ", scale)
+        miro.board.widgets.update({
+          "id": widgetIdNew,
+          "metadata": {
+            "3074457354030127345": {
+              "scale": scale,
+              "scale_on": 1
+            }
+          }
+        })
+      }
+
+      else {
+        // set new scale
+        console.log("new widget to replace old scale: ", widgetIdNew)
+        console.log("the new scale: ", scale)
+        miro.board.widgets.update({
+          "id": widgetIdNew,
+          "metadata": {
+            "3074457354030127345": {
+              "scale": scale,
+              "scale_on": 1
+            }
+          }
+        })
+      }
+    }
+
+
+  // ----------------------------------
+
+
+
+
+    async function getScale() {
+        miro.board.widgets.get({
+          "metadata": {
+            "3074457354030127345": {
+              "scale_on": 1
+            }
+          }
+        }).then( function(result) {
+          scale_x = result[0].metadata["3074457354030127345"].scale
+          input_x.value = roundCustom( objSize_x / scale_x )
+          input_y.value = roundCustom( objSize_y / scale_x )
+          // console.log(scale_x)
+        })
+    }
+
+  // ----------------------------------
+
+
+
+    function showElement(el) {
+      el.style.display = 'block'
+    }
+
+    function hideElement(el) {
+      el.style.display = 'none'
+    }
+
+    hideElement(placeholder)
+    hideElement(widgetInfo)
+
+    
+    
+    miro.addListener(miro.enums.event.SELECTION_UPDATED, onSelectionChange)
+    miro.addListener(miro.enums.event.WIDGETS_TRANSFORMATION_UPDATED, onSelectionChange)
+    miro.board.selection.get().then(function(selectedWidgets) {
+      updateSelection(selectedWidgets)
+    })
+
+
+    async function btSetScale() { // set x caller
+      if (lastSelectedWidgetId) {
+        var scale_result = objSize_x / input_x.value
+        setScale(lastSelectedWidgetId, scale_result) //jump here
+        input_y.value = objSize_y / scale_result
+        lastSelectedWidgetId = undefined // why?
+      }
+    }
+
+
+    //resize button redo:
+
+    async function btResize() { // resize
+      if (lastSelectedWidgetId) {
+        let new_W = input_x.value * scale_x //input_x and input_y is user input value from UI
+        let new_H = input_y.value * scale_x //scale_x is scaling proportion which is also set by user but not manually
+                                            //user can choose a widget and set its x value(width) as scale and scale other widgets in proportion to this
+        console.log("input_x.value: ", input_x.value)
+        console.log("input_y.value: ", input_y.value)
+        console.log("scale_x: ", scale_x)
+        console.log("new_W: ", new_W)
+        console.log("new_H: ", new_H)
+
+        await miro.board.widgets.update({
+          "id": lastSelectedWidgetId,
+          "width": new_W,
+          "height": new_H
+        })
+      }
+    }
+
+    function roundCustom(n) {
+      n_abs = Math.abs(n)
+          if (n_abs > 1000 )  { return Math.round( n * 10 )      / 10; }
+      else if (n_abs > 100 )   { return Math.round( n * 100 )     / 100; }
+      else if (n_abs > 10 )    { return Math.round( n * 1000 )    / 1000; }
+      else if (n_abs > 0 )     { return Math.round( n * 10000 )   / 10000; }
+    }
+    //console.log(roundCustom(0.6244941))
+
+  //-------------------------------------------------------------------- Dimensions code ------------------------------------------------------------------------//
+
+    function getTextWidth(inputText) { // calculates how much space will be occupied by string with specified font and font-size
+      
+      font = "14px open sans"
+
+      canvas = document.createElement("canvas")
+      context = canvas.getContext("2d")
+      context.font = font
+      width = context.measureText(inputText).width
+      formattedWidth = Math.ceil(width) + "px"
+
+      console.log(formattedWidth)
+      return formattedWidth
+    }
+
+    function unitMarginalizer(unitInput) {
+      let temp = unitInput.value.length
+      temp * 30
+      return temp
+    }
+
+    async function CreateDimensionLine() { // creates quotation line from params available
+      currentDimensionGroup = []
+      currentDimensionGroup.push(selectedWidget.id)
+      let horizontalWidgetWidth = input_x.value
+      let tresholdMargin
+      let tresholdMargin2
+      let textSize
+      let textSize2
+      let lineThicknessMargin
+      let lineThicknessMargin2
+      let lineTresholdMargin
+      let lineTresholdMargin2
+      let unitTextMarginX
+      let unitTextMarginY
+      dimensionCreatorState = true
+
+      //check if input in units is empty
+      if(input_x_unit.value == undefined || input_x_unit.value == "undefined" || input_x_unit.value.length == 0) {
+        input_x_unit.value = "units"
+        unitTextMarginX = 0
+      }
+      else {
+        unitTextMarginX = unitMarginalizer(input_x_unit)
+      }
+      if(input_y_unit.value == undefined || input_y_unit.value == "undefined" || input_y_unit.value.length == 0) {
+        input_y_unit.value = "units"
+        unitTextMarginY = 0
+      }
+      else {
+        unitTextMarginY = unitMarginalizer(input_y_unit)
+      }
+
+      //text / font sizes adequate to widget sizes:
+      // 60< - 
+
+      console.log("selected obj width: ", lastSelectedWidget.bounds.width)
+      if (lastSelectedWidget.bounds.width <= 30) { //small widget 1 -> 60 range
+        tresholdMargin = 15
+        lineTresholdMargin = 15
+        textSize = 0.85
+        lineThicknessMargin = 1
+        console.log("width option small triggered")
+        console.log("meaning the text margin is: ", textSize)
+      }
+      else if (lastSelectedWidget.bounds.width <= 60) { //small widget 1 -> 60 range
+        tresholdMargin = 30
+        lineTresholdMargin = 30
+        textSize = 1
+        lineThicknessMargin = 2
+        console.log("width option small triggered")
+        console.log("meaning the text margin is: ", textSize)
+      }
+      else if(lastSelectedWidget.bounds.width <= 400 && lastSelectedWidget.bounds.width > 60) { //medium widget 61 -> 400 range
+        tresholdMargin = 60
+        lineTresholdMargin = 50
+        textSize = 2.5
+        lineThicknessMargin = 3
+        console.log("width option medium triggered")
+        console.log("meaning the text margin is: ", textSize)
+      }
+      else if(lastSelectedWidget.bounds.width <= 1200 && lastSelectedWidget.bounds.width > 400) { //large widget 401  -> 1200 range
+        tresholdMargin = 110
+        lineTresholdMargin = 70
+        textSize = 6.8
+        lineThicknessMargin = 5
+        console.log("width option large triggered")
+        console.log("meaning the text margin is: ", textSize)
+      }
+      else if(lastSelectedWidget.bounds.width > 1200) { //XLarge widget 1200+ range
+        tresholdMargin = 150
+        lineTresholdMargin = 100
+        textSize = 13.5
+        lineThicknessMargin = 10
+        console.log("width option XLarge triggered")
+        console.log("meaning the text margin is: ", textSize)
+      }
+
+      let horizontalStartPosX = lastSelectedWidget.bounds.left
+      let horizontalStartPosY = lastSelectedWidget.bounds.bottom + lineTresholdMargin
+      let horizontalEndPosX = lastSelectedWidget.bounds.right
+      let horizontalEndPosY = lastSelectedWidget.bounds.bottom + lineTresholdMargin
+
+
+      //create x2, 1 vertical facing and 1 horizontal facing line with appropriate measurements
+
+      await miro.board.widgets.create({ // Line structure for horizontal
+        "capabilities" : {
+            "editable" : true
+        },
+        "clientVisible" : true,
+        "startPosition" : {
+            "x" : horizontalStartPosX,
+            "y" : horizontalStartPosY
+        },
+        "endPosition" : {
+            "x" : horizontalEndPosX,
+            "y" : horizontalEndPosY
+        },
+        "style": {
+          "lineColor" : "#000000",
+          "lineEndStyle" : 8,
+          "lineStartStyle" : 8,
+          "lineStyle" : 2,
+          "lineThickness" : lineThicknessMargin,
+          "lineType" : 0
+        },
+        "type": "LINE"
+      })
+      // widget left = line startposition x
+      // widget bottom = line startposition y + 100 (so that line won't interfere with widget)
+      // widget bottom = line endposition y + 100
+      // widget right = line endposition x
+
+      let horizontalText = horizontalWidgetWidth + " " + input_x_unit.value
+      let calculatedWidth = getTextWidth(horizontalText)
+      //console.log("input x value: ", input_x.value, "horizontal widget width: ", horizontalWidgetWidth + "units", "horizontal text width: ", horizontalTextWidth)
+
+      await miro.board.widgets.create({ // Text structure for horizontal AKA spodny text
+        "capabilities" : {
+            "editable" : true
+        },
+        "scale" : textSize,
+        "style" : {
+          "backgroundColor" : "transparent",
+          "backgroundOpacity" : 1,
+          "bold" : 0,
+          "borderColor" : "transparent",
+          "borderOpacity" : 1,
+          "borderStyle" : 2,
+          "borderWidth" : 2,
+          "fontFamily" : 10,
+          "highlighting" : 0,
+          "italic" : 0,
+          "padding" : undefined,
+          "strike" : 0,
+          "textAlign" : "c",
+          "textColor" : "#1a1a1a",
+          "underline" : 0
+        },
+        "text" : "<p>" + horizontalText + "</p>",
+        "type": "TEXT",
+        "x" : lastSelectedWidget.bounds.x,
+        "y" : horizontalStartPosY + tresholdMargin + unitTextMarginX
+      })
+
+      //count characters in horizontalWidgetWidth to determine width. 3 digits = min width 78, 4 digits = 86, 5 digits = 95 (each extra digit +10~ pixels) 
+
+      //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+      let verticalWidgetHeight = input_y.value
+
+      console.log("lastSelectedWidget height: ", lastSelectedWidget.bounds.height)
+      if (lastSelectedWidget.bounds.height <= 30) { //small widget 1 -> 60 range
+        tresholdMargin2 = 55
+        lineTresholdMargin2 = 15
+        textSize2 = 0.85
+        lineThicknessMargin2 = 1
+        console.log("width option small triggered")
+        console.log("meaning the text margin is: ", textSize)
+      }
+      else if (lastSelectedWidget.bounds.height <= 60 && lastSelectedWidget.bounds.height > 30) { //small widget 1 -> 60 range
+        tresholdMargin2 = 85
+        lineTresholdMargin2 = 30
+        textSize2 = 1
+        lineThicknessMargin2 = 2
+        console.log("height option small triggered")
+        console.log("meaning the text margin is: ", textSize2)
+      }
+      else if(lastSelectedWidget.bounds.height <= 400 && lastSelectedWidget.bounds.height > 60) { //medium widget 61 -> 400 range
+        tresholdMargin2 = 300
+        lineTresholdMargin2 = 50
+        textSize2 = 2.5
+        lineThicknessMargin2 = 3
+        console.log("height option medium triggered")
+        console.log("meaning the text margin is: ", textSize2)
+      }
+      else if(lastSelectedWidget.bounds.height <= 1200 && lastSelectedWidget.bounds.height > 400) { //large widget 401 -> 1200 range
+        tresholdMargin2 = 650
+        textSize2 = 6.8
+        lineTresholdMargin2 = 70
+        lineThicknessMargin2 = 5
+        console.log("height option large triggered")
+        console.log("meaning the text margin is: ", textSize2)
+      }
+      else if(lastSelectedWidget.bounds.height > 1200) { //XLarge widget 1200+ range
+        tresholdMargin2 = 850
+        textSize2 = 13.5
+        lineTresholdMargin2 = 100
+        lineThicknessMargin2 = 10
+        console.log("height option XLarge triggered")
+        console.log("meaning the text margin is: ", textSize2)
+      }
+
+      let verticalStartPosX = lastSelectedWidget.bounds.right + lineTresholdMargin2
+      let verticalStartPosY = lastSelectedWidget.bounds.bottom
+      let verticalEndPosX = lastSelectedWidget.bounds.right + lineTresholdMargin2
+      let verticalEndPosY = lastSelectedWidget.bounds.top
+
+      await miro.board.widgets.create({ // Line structure for vertical
+        "capabilities" : {
+            "editable" : true
+        },
+        "clientVisible" : true,
+        "startPosition" : {
+            "x" : verticalStartPosX,
+            "y" : verticalStartPosY
+        },
+        "endPosition" : {
+            "x" : verticalEndPosX,
+            "y" : verticalEndPosY
+        },
+        "style": {
+          "lineColor" : "#000000",
+          "lineEndStyle" : 8,
+          "lineStartStyle" : 8,
+          "lineStyle" : 2,
+          "lineThickness" : lineThicknessMargin2,
+          "lineType" : 0
+        },
+        "type": "LINE"
+      })
+
+      let verticalText = verticalWidgetHeight + " " + input_y_unit.value
+      let calculatedWidth2 = getTextWidth(verticalText)
+      let combinedMargin = tresholdMargin2 + lastSelectedWidget.bounds.right + (lineTresholdMargin2)//comment
+      console.log("combined margin: ", combinedMargin)
+
+      await miro.board.widgets.create({ // Text structure for vertical AKA text napravo
+        "bounds" : {
+          //"height" : textMargin2, // Here I try to set the text height
+          //"width" : calculatedWidth2,
+          "x" : combinedMargin,
+          "y" : lastSelectedWidget.bounds.y
+        },
+        "capabilities" : {
+            "editable" : true
+        },
+        "scale" : textSize2,
+        "style" : {
+          "backgroundColor" : "transparent",
+          "backgroundOpacity" : 1,
+          "bold" : 0,
+          "borderColor" : "transparent",
+          "borderOpacity" : 1,
+          "borderStyle" : 2,
+          "borderWidth" : 2,
+          "fontFamily" : 10,
+          "highlighting" : 0,
+          "italic" : 0,
+          "padding" : undefined,
+          "strike" : 0,
+          "textAlign" : "c",
+          "textColor" : "#1a1a1a",
+          "underline" : 0
+        },
+        "text" : "<p>" + verticalText + "</p>",
+        "type": "TEXT",
+        //"height" : textMargin2,
+        "x" : combinedMargin,
+        "y" : lastSelectedWidget.bounds.y
+      })
+    
+      // then trigger ctrl + G keystroke on the selection
+      // group should be formed at this point, clear selection
+
+    }
+
+    //keystrokes for grouping: 
+    //Jquery still making trouble check if jquery works as it should from the link
+    function keyStrokeGroup() {
+      e = jQuery.Event("keydown");
+      fake = $.extend({}, e, {ctrlKey: true, which: 71});
+      $("input").trigger(fake);
+    }
+    
+    async function newWidgetCreatedListener() { // async handler actually works this way *surprisingly*
+        miro.addListener('WIDGETS_CREATED', async widget => {
+          console.log("new widget id: ", widget.data[0].id)
+          //console.log("new widget as a whole: ", widget)
+          currentDimensionGroup.push(widget.data[0].id)
+          console.log("group length: ", currentDimensionGroup)
+          if(dimensionCreatorState == true && currentDimensionGroup.length == 5) {
+            console.log("current dimension group: ", currentDimensionGroup)
+            await miro.board.selection.selectWidgets(currentDimensionGroup)
+            keyStrokeGroup()
+            //selection clear if this works out
+            dimensionCreatorState = false
+            currentDimensionGroup = []
+          }
+        })
+    }
+
+  /*
+  NOTES:
+
+  UPDATE WIDGET:
+
+  miro.board.widgets.update({
+    "id": "3074457348375201764",
+    "scale": 2
+  })
+
+
+  */
+})
+
+
+</script>
+</body>
+</html>
